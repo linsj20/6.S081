@@ -1,4 +1,4 @@
-// Saved registers for kernel context switches.
+//Saved registers for kernel context switches.
 struct context {
   uint64 ra;
   uint64 sp;
@@ -27,7 +27,7 @@ struct cpu {
 };
 
 extern struct cpu cpus[NCPU];
-
+extern uint64 procnum();
 // per-process data for the trap handling code in trampoline.S.
 // sits in a page by itself just under the trampoline page in the
 // user page table. not specially mapped in the kernel page table.
@@ -97,6 +97,7 @@ struct proc {
   struct proc *parent;         // Parent process
 
   // these are private to the process, so p->lock need not be held.
+  uint32 tmask;                // Mask for traces
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
