@@ -17,7 +17,7 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
-
+extern pte_t *walk(pagetable_t pagetable, uint64 va, int alloc);
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -126,6 +126,13 @@ found:
     release(&p->lock);
     return 0;
   }
+  
+  //Allocate a usyscall page
+  if((p->usyscall = (struct usyscall *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -140,7 +147,9 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  
+  // Set up usyscall pid 
+  (p->usyscall)->pid = p->pid;
   return p;
 }
 
@@ -153,6 +162,9 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->usyscall)
+    kfree((void*)p->usyscall);
+  p->usyscall = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -187,6 +199,7 @@ proc_pagetable(struct proc *p)
     uvmfree(pagetable, 0);
     return 0;
   }
+  
 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
@@ -196,6 +209,14 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  // map the usyscall below TRAMFRAME, for ugetpid()
+  if(mappages(pagetable, USYSCALL, PGSIZE,
+              (uint64)(p->usyscall), PTE_R | PTE_U) < 0){
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
   return pagetable;
 }
 
@@ -206,6 +227,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
 
@@ -653,4 +675,25 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+pgaccess(void *pg, int num, void *dst){
+  struct proc *p = myproc();
+  if (p == 0) {
+    return 1;
+  }
+  pagetable_t pagetable = p->pagetable;
+  int res = 0;
+  for (int i = 0; i < num; i++) {
+    pte_t *pte;
+    pte = walk(pagetable, ((uint64)pg) + (uint64)PGSIZE * i, 0);
+    if (pte != 0 && ((*pte) & PTE_A)) {
+      res |= 1 << i;
+      // clear PTE_A
+      *pte ^= PTE_A;
+    }
+  }
+  
+  return copyout(pagetable, (uint64)dst, (char *)&res, sizeof(int));
 }

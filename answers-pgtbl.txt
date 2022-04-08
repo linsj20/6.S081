@@ -1,0 +1,3 @@
+Speed up system calls:uptime(),the kernel can put the uptime in USYSCALL page such that user can directly read from the page.
+Print a page table:vmprint print out all the pages that the stack heap data text is using.0:text and data.2:stack. No,he can't. heap,trapframe and trampoline.
+

@@ -81,7 +81,13 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
-  return 0;
+  uint64 st;
+  int num;
+  uint64 dst;
+  if (argaddr(0, &st) < 0) return -1;
+  if (argint(1, &num) < 0) return -1;
+  if (argaddr(2, &dst) < 0) return -1;
+  return pgaccess((void*)st, num, (void*)dst);
 }
 #endif
 
