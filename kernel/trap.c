@@ -8,6 +8,7 @@
 
 struct spinlock tickslock;
 uint ticks;
+extern pte_t *walk(pagetable_t pagetable, uint64 va, int alloc);
 
 extern char trampoline[], uservec[], userret[];
 
@@ -67,6 +68,14 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13 || r_scause() == 15){
+    uint64 va = r_stval();
+    if (va >= MAXVA || (va <= PGROUNDDOWN(p->trapframe->sp) && va >= PGROUNDDOWN(p->trapframe->sp) - PGSIZE))
+    {
+      p->killed = 1;
+    }
+    else if (cow_alloc(p->pagetable, va) != 0)
+      p->killed = 1;
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -218,3 +227,34 @@ devintr()
   }
 }
 
+int
+cow_alloc(pagetable_t pagetable, uint64 va)
+{
+  uint64 pa;
+  pte_t *pte;
+  uint flags;
+
+  if (va >= MAXVA) return -1;
+
+  va = PGROUNDDOWN(va);
+  pte = walk(pagetable, va, 0);
+  if (pte == 0) return -1;
+
+  pa = PTE2PA(*pte);
+  if (pa == 0) return -1;
+
+  flags = PTE_FLAGS(*pte);
+
+  if (flags & PTE_COW)
+  {
+    char *ka = kalloc();
+    if (ka == 0) return -1;
+    memmove(ka, (char*)pa, PGSIZE);
+    kfree((void*)pa);
+    flags = (flags & ~PTE_COW) | PTE_W;
+    *pte = PA2PTE((uint64)ka) | flags;
+    return 0;
+  }
+  
+  return 0;
+}
